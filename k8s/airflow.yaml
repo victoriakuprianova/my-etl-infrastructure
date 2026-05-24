@@ -1,0 +1,160 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: airflow-config
+data:
+  passwd: "airflow:x:1000:0:airflow:/home/airflow:/bin/bash"
+  connection_string: "postgresql+psycopg2://airflow:securepassword123@rc1a-bahhsgmedt75q7m3.mdb.yandexcloud.net:6432/airflow"
+  airflow.cfg: |
+    [core]
+    load_examples = False
+    executor = KubernetesExecutor
+    dags_folder = /opt/airflow/dags/repo/dags  # Путь, куда GitSync клонирует репозиторий
+    
+    [metrics]
+    # Включаем отправку метрик для Prometheus
+    statsd_on = True
+    statsd_host = localhost
+    statsd_port = 8125
+    statsd_prefix = airflow
+
+    [kubernetes]
+    pod_template_file = /opt/airflow/config/pod_template.yaml
+    worker_container_repository = cr.yandex/crplb0c2gkn2vtsfai36/airflow-spark
+    worker_container_tag = 22
+    namespace = default
+    delete_worker_pods = False
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: airflow-sa
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: airflow-admin-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: ServiceAccount
+  name: airflow-sa
+  namespace: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airflow-web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: airflow-web
+  template:
+    metadata:
+      labels:
+        app: airflow-web
+    spec:
+      securityContext:
+        fsGroup: 0
+        runAsUser: 1000
+      serviceAccountName: airflow-sa
+      containers:
+      - name: airflow-web
+        image: cr.yandex/crpjcun20b207pv01b97/airflow-spark:22
+        imagePullPolicy: Always
+        env:
+          - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
+            value: "postgresql+psycopg2://airflow:securepassword123@rc1a-bahhsgmedt75q7m3.mdb.yandexcloud.net:6432/airflow"
+          - name: AIRFLOW__WEBSERVER__SECRET_KEY
+            value: "super-secret-key-123"
+          - name: AIRFLOW_USER_NAME
+            value: "airflow"
+          - name: USER
+            value: "airflow"
+          - name: TMPDIR
+            value: "/tmp"
+          - name: AIRFLOW_CONN_SPARK_DEFAULT
+            value: "spark://k8s://cluster.local?namespace=default"
+          - name: AIRFLOW_VAR_S3_ACCESS_KEY
+            value: "YCAJEURZLwQc3kzAnAqarzhbi"
+          - name: AIRFLOW_VAR_S3_SECRET_KEY
+            value: "YCPFwLiaJLOwLe1DK7rTwsEvR8FtepV2tcXR0jOC"
+        volumeMounts:
+        - name: config
+          mountPath: /opt/airflow/airflow.cfg
+          subPath: airflow.cfg
+        - name: logs
+          mountPath: /opt/airflow/logs
+        command: ["/bin/bash", "-c"]
+        args: ["airflow db upgrade && airflow webserver"]
+      volumes:
+      - name: config
+        configMap:
+          name: airflow-config
+      - name: logs
+        emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airflow-scheduler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: airflow-scheduler
+  template:
+    metadata:
+      labels:
+        app: airflow-scheduler
+    spec:
+      securityContext:
+        fsGroup: 0
+        runAsUser: 1000
+      serviceAccountName: airflow-sa # Дает поду права Workload Identity
+      containers:
+      # 1. Основной контейнер Планировщика
+      - name: airflow-scheduler
+        image: cr.yandex/crplb0c2gkn2vtsfai36/airflow-spark:22
+        env:
+          - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
+            valueFrom:
+              configMapKeyRef:
+                name: airflow-config
+                key: connection_string
+        volumeMounts:
+        - name: config
+          mountPath: /opt/airflow/airflow.cfg
+          subPath: airflow.cfg
+        - name: dags
+          mountPath: /opt/airflow/dags # Общий том с GitSync
+        command: ["/bin/bash", "-c"]
+        args: ["airflow scheduler"]
+
+      # 2. Sidecar контейнер GIT-SYNC (Синхронизация кода)
+      - name: git-sync
+        image: registry.k8s.io/git-sync/git-sync:v4.2.1
+        env:
+          - name: GIT_SYNC_REPO
+            value: "https://github.com"
+          - name: GIT_SYNC_BRANCH
+            value: "main"
+          - name: GIT_SYNC_ROOT
+            value: "/opt/airflow/dags"
+          - name: GIT_SYNC_DEST
+            value: "repo"
+          - name: GIT_SYNC_WAIT
+            value: "60" # Проверка обновлений кода каждые 60 секунд
+        volumeMounts:
+        - name: dags
+          mountPath: /opt/airflow/dags
+
+      volumes:
+      - name: config
+        configMap:
+          name: airflow-config
+      - name: dags
+        emptyDir: {} # Общая оперативная память для шаринга DAG-файлов

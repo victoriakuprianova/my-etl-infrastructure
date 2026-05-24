@@ -1,0 +1,4 @@
+grafana:
+  adminPassword: "admin" # Смени на свой!
+  service:
+    type: LoadBalancer # Yandex Cloud создаст внешний IP

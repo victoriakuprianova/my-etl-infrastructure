@@ -1,0 +1,22 @@
+# values.yaml
+images:
+  airflow:
+    repository: custom-airflow
+    tag: latest
+    pullPolicy: Never # Используем локальный образ
+
+executor: "KubernetesExecutor" # Каждая задача — отдельный под (Pod)
+
+# База данных (K8s сам поднимет Postgres)
+postgresql:
+  enabled: true
+
+# Настройки для Spark
+env:
+  - name: "AIRFLOW__SPARK_CONFIG__SPARK_HOME"
+    value: "/home/airflow/.local/lib/python3.12/site-packages/pyspark"
+
+# Монтирование DAGs (в K8s это делается через GitSync или PersistentVolumes)
+dags:
+  persistence:
+    enabled: false # Для начала будем копировать через 'kubectl cp' или использовать встроенные

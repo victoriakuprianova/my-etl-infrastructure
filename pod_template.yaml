@@ -1,0 +1,43 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: placeholder
+spec:
+  securityContext:
+    fsGroup: 0
+    runAsUser: 1000
+  hostAliases:
+    - ip: "10.1.0.30"
+      hostnames:
+        - "rc1a-92ijslf0gmsi0q7m.mdb.yandexcloud.net"
+  containers:
+    - name: base
+      image: cr.yandex/crplb0c2gkn2vtsfai36/airflow-spark:22
+      imagePullPolicy: Always
+      env:
+        - name: USER
+          value: "airflow"
+        - name: AIRFLOW_USER_NAME
+          value: "airflow"
+        - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: connection_string
+      volumeMounts:
+        - name: config
+          mountPath: /opt/airflow/airflow.cfg
+          subPath: airflow.cfg
+        - name: passwd
+          mountPath: /etc/passwd
+          subPath: passwd
+  volumes:
+    - name: config
+      configMap:
+        name: airflow-config
+    - name: passwd
+      configMap:
+        name: airflow-config
+        items:
+          - key: passwd
+            path: passwd

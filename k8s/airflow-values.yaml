@@ -1,0 +1,52 @@
+# images:
+#   airflow:
+#     repository: custom-airflow
+#     tag: latest
+#     pullPolicy: Never
+
+# executor: "KubernetesExecutor"
+
+# config:
+#   core:
+#     load_examples: "False"
+#     dags_are_paused_at_creation: "True"
+
+# # Автоматическое создание соединений (Connections)
+# connections:
+#   - id: aws_default
+#     type: s3
+#     host: http://minio:9000
+#     login: minioadmin
+#     password: minioadmin
+
+##minikube start --driver=docker --memory 4096 --cpus 2
+executor: "KubernetesExecutor"
+images:
+  airflow:
+    repository: custom-airflow
+    tag: latest
+    pullPolicy: Never
+
+# Отключаем встроенный Postgres (лучше использовать внешний или очень легкий)
+postgresql:
+  enabled: true
+  primary:
+    resources:
+      limits:
+        memory: 256Mi
+
+# Ограничиваем основные компоненты Airflow
+scheduler:
+  resources:
+    limits:
+      memory: 512Mi
+webserver:
+  resources:
+    limits:
+      memory: 512Mi
+
+# Ставим лимиты на временные поды, которые создает KubernetesExecutor
+workers:
+  resources:
+    limits:
+      memory: 256Mi

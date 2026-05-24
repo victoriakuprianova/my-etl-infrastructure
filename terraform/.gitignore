@@ -1,0 +1,14 @@
+# Локальные секреты (те, что мы создали)
+*.tfvars
+*.tfvars.json
+
+# Состояние инфраструктуры (содержит пароли в открытом виде)
+*.tfstate
+*.tfstate.backup
+
+# Рабочая папка Terraform
+.terraform/
+.terraform.lock.hcl
+
+# Логи
+crash.log
